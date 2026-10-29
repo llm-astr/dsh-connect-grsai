@@ -1,0 +1,4 @@
+- insert:
+    - id: grsai-video
+      name: dsh-grsai-video
+      config: {}

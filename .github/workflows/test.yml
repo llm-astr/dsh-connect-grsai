@@ -1,0 +1,17 @@
+name: Test GrsAI video plugin
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-14]
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: ${{ matrix.node }} }
+      - run: node --test test-core.js test-client.js
+      - run: node --check index.js && node --check client.js
