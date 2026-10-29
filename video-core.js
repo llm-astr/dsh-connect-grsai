@@ -2,6 +2,7 @@
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const GLOBAL_BASE = 'https://grsaiapi.com';
 const CHINA_BASE = 'https://grsai.dakka.com.cn';
@@ -12,7 +13,7 @@ const TOTAL_RESOURCE_LIMIT = 64 * 1024 * 1024;
 const MODELS = ['minimax-h3', 'agnes-video-2.5'];
 const STATUSES = ['running', 'succeeded', 'failed', 'violation'];
 
-const resource = { type: 'string', minLength: 1, description: '公网HTTPS URL或工作区内本地路径；本地文件读取后转为裸base64（官方支持，但尚未经付费端到端验证）。' };
+const resource = { type: 'string', minLength: 1, description: '公网HTTPS URL、工作区内路径或工作区内file URL；本地文件读取后转为裸base64（官方支持，但尚未经付费端到端验证）。' };
 export const tools = [
   { name: 'status', description: '检查视频插件配置，不联网、不消耗额度、不显示密钥。', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'generate_video', description: '提交一次异步视频任务，不轮询、不重试。必须显式指定模型、分辨率等参数；每次提交均需明确批准。', inputSchema: {
@@ -81,11 +82,21 @@ function validate(name, args) {
   return { ...args, replyType: 'async' };
 }
 
-function httpsReference(value) {
+function reference(value) {
   let parsed;
-  try { parsed = new URL(value); } catch { return null; }
-  if (parsed.protocol !== 'https:' || !parsed.hostname || parsed.username || parsed.password) fail('参考资源URL仅允许无用户名密码的HTTPS地址。');
-  return parsed.href;
+  try { parsed = new URL(value); } catch { return { local: value }; }
+  if (parsed.protocol === 'https:') {
+    if (!parsed.hostname || parsed.username || parsed.password) fail('参考资源URL仅允许无用户名密码的HTTPS地址。');
+    return { remote: parsed.href };
+  }
+  if (parsed.protocol === 'file:') {
+    // Only local-host file URLs are meaningful here. Containment is checked after realpath below.
+    if (parsed.hostname && parsed.hostname !== 'localhost') fail('file URL仅允许本机路径。');
+    let local;
+    try { local = fileURLToPath(parsed); } catch { fail('file URL格式无效。'); }
+    return { local };
+  }
+  fail('参考资源仅支持公网HTTPS URL、工作区路径或工作区内file URL。');
 }
 function imageMagic(data) {
   if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return;
@@ -124,9 +135,9 @@ async function localResource(root, value, kind, signal) {
 async function materialize(root, fields, signal) {
   let total = 0;
   const convert = async (value, kind) => {
-    const remote = httpsReference(value);
-    if (remote) return remote;
-    const data = await localResource(root, value, kind, signal);
+    const resolved = reference(value);
+    if (resolved.remote) return resolved.remote;
+    const data = await localResource(root, resolved.local, kind, signal);
     total += data.length;
     if (total > TOTAL_RESOURCE_LIMIT) fail('本地参考资源合计超过64 MiB限制。');
     return data.toString('base64');

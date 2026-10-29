@@ -146,6 +146,7 @@ test('local workspace resources become bare base64; magic, traversal, symlinks a
   const workspace = path.join(root, 'workspace'); await mkdir(workspace);
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
   await writeFile(path.join(workspace, 'image.png'), png);
+  await writeFile(path.join(workspace, '中文 空格.png'), png);
   await writeFile(path.join(workspace, 'sound.mp3'), Buffer.from('ID3test'));
   await writeFile(path.join(workspace, 'fake.png'), 'not an image');
   await writeFile(path.join(root, 'outside.png'), png);
@@ -154,8 +155,16 @@ test('local workspace resources become bare base64; magic, traversal, symlinks a
     await mocked(async (_url, init) => { const body = JSON.parse(init.body); assert.deepEqual(body.images, [png.toString('base64')]); assert.deepEqual(body.audios, [Buffer.from('ID3test').toString('base64')]); return json(running); }, async () => {
       await run('generate_video', { ...args, images: ['image.png'], audios: ['sound.mp3'] }, { ...options, workspace });
     });
+    const { pathToFileURL } = await import('node:url');
+    await mocked(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      assert.deepEqual(body.images, [png.toString('base64'), png.toString('base64')]);
+      return json(running);
+    }, async () => {
+      await run('generate_video', { ...args, images: [pathToFileURL(path.join(workspace, '中文 空格.png')).href, path.join(workspace, 'image.png')] }, { ...options, workspace });
+    });
     await mocked(() => assert.fail('unsafe local resource must not fetch'), async () => {
-      for (const image of ['fake.png', '../outside.png', 'escape.png', 'missing.png', 'http://example.com/a.png', 'https://user:pass@example.com/a.png']) await assert.rejects(run('generate_video', { ...args, images: [image] }, { ...options, workspace }));
+      for (const image of ['fake.png', '../outside.png', 'escape.png', 'missing.png', 'http://example.com/a.png', 'https://user:pass@example.com/a.png', pathToFileURL(path.join(root, 'outside.png')).href, 'file://remotehost/tmp/a.png']) await assert.rejects(run('generate_video', { ...args, images: [image] }, { ...options, workspace }));
     });
     await writeFile(path.join(workspace, 'large.mp3'), Buffer.alloc(20 * 1024 * 1024 + 1));
     await assert.rejects(run('generate_video', { ...args, audios: ['large.mp3'] }, { ...options, workspace }), /20 MiB/);
