@@ -14,6 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: ${{ matrix.node }} }
+        with:
+          node-version: ${{ matrix.node }}
       - run: node --test test-core.js test-client.js
       - run: node --check index.js && node --check client.js
